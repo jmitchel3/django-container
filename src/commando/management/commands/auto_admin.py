@@ -25,7 +25,7 @@ class Command(BaseCommand):
         admin_password = config("DJANGO_ADMIN_PASSWORD", default=None)
         admin_email = config("DJANGO_ADMIN_EMAIL", default="notset@notset.com")
         if admin_password is None:
-            admin_password = "change-me-right-away-password-2025-do-no-use"
+            admin_password = "admin"
         admin_qs = User.objects.filter(username=admin_username)
         if admin_qs.exists() and force:
             admin_instance = admin_qs.first()

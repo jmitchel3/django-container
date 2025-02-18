@@ -4,6 +4,7 @@ Django settings for cfehome project using Django 5.1.5.
 
 from pathlib import Path
 
+from decouple import Csv
 from django.core.management.utils import get_random_secret_key
 
 # uses python-decouple
@@ -24,20 +25,22 @@ SECRET_KEY = config("DJANGO_SECRET_KEY", cast=str, default=get_random_secret_key
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config("DJANGO_DEBUG", cast=bool, default=False)
+PORT = config("PORT", cast=int, default=8000)
 
-FRONTEND_URL = config("FRONTEND_URL", cast=str, default="https://djangonext.js")
-ALLOWED_HOSTS = config("DJANGO_ALLOWED_HOSTS", cast=list, default=[])
-CSRF_TRUSTED_ORIGINS = config("DJANGO_CSRF_TRUSTED_ORIGINS", cast=list, default=[])
 
+DJANGO_ALLOWED_HOSTS = config("DJANGO_ALLOWED_HOSTS", cast=Csv(), default="")
+CSRF_TRUSTED_ORIGINS = config("DJANGO_CSRF_TRUSTED_ORIGINS", cast=Csv(), default="")
 APPEND_SLASH = config("DJANGO_APPEND_SLASH", cast=bool, default=True)
 
+ALLOWED_HOSTS = DJANGO_ALLOWED_HOSTS
+CSRF_TRUSTED_ORIGINS = CSRF_TRUSTED_ORIGINS
+
 if DEBUG:
-    ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
-    CSRF_TRUSTED_ORIGINS = [
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
+    ALLOWED_HOSTS += ["localhost", "127.0.0.1", "[::]"]
+    CSRF_TRUSTED_ORIGINS += [
+        f"http://localhost:{PORT}",
+        f"http://127.0.0.1:{PORT}",
+        f"http://[::]:{PORT}",
     ]
 
 # Application definition

@@ -43,6 +43,22 @@ if DEBUG:
         f"http://[::]:{PORT}",
     ]
 
+RAILWAY_HOSTS = [
+    "healthcheck.railway.app",
+    ".railway.internal",
+    ".up.railway.app",
+    "plutopicom.railway.internal",
+]
+
+for host in RAILWAY_HOSTS:
+    ALLOWED_HOSTS.append(host)
+    for protocol in ["http", "https"]:
+        if host.startswith("."):
+            CSRF_TRUSTED_ORIGINS.append(f"{protocol}://*{host}")
+        else:
+            CSRF_TRUSTED_ORIGINS.append(f"{protocol}://{host}")
+
+
 # Application definition
 SITE_ID = 1
 INSTALLED_APPS = INSTALLED_APPS

@@ -1,0 +1,21 @@
+{
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "./Dockerfile",
+    "watchPatterns": [
+      "cfe.toml",
+      "gunicorn.conf.py",
+      "requirements.txt",
+      "src/**",
+      "railway.toml",
+      "Dockerfile"
+    ]
+  },
+  "deploy": {
+    "healthcheckPath": "/api/healthz/",
+    "healthcheckTimeout": 300,
+    "startupTimeout": 300,
+    "restartPolicyType": "always",
+    "restartPolicyMaxRetries": 10
+  }
+}

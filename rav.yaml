@@ -1,0 +1,27 @@
+scripts:
+  build:
+    - docker build -t django-container .
+  shell:
+    - docker run -it django-container bash
+  run:
+    - docker stop django-container || true
+    - docker run --rm -p 8001:8001 -e PORT=8001 --env-file .env.dev --name django-container django-container
+  stop:
+    - docker stop django-container
+  remove:
+    - docker rm django-container
+  db_up:
+    - docker compose up -d db
+  db_down:
+    - docker compose down db
+  dev:
+    - cd src
+    - ../venv/bin/python manage.py runserver
+  migrate:
+    - cd src
+    - ../venv/bin/python manage.py migrate
+  install:
+    - venv/bin/pip-compile src/requirements/dev.in --output-file requirements.dev.txt
+    - venv/bin/pip-compile src/requirements/prod.in --output-file requirements.txt
+    - venv/bin/pip install -r requirements.dev.txt
+    - venv/bin/pip install -r requirements.txt

@@ -1,0 +1,6 @@
+django
+django-cors-headers
+python-decouple
+dj-database-url
+psycopg[binary]
+whitenoise

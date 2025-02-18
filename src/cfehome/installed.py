@@ -15,7 +15,9 @@ THIRD_PARTY_INSTALLED_APPS = [
     "whitenoise",
 ]
 
-MY_APPS = []
+MY_APPS = [
+    "commando",
+]
 
 
 INSTALLED_APPS = list(set(DJANGO_INSTALLED_APPS + THIRD_PARTY_INSTALLED_APPS + MY_APPS))

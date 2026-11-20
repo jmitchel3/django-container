@@ -1,0 +1,4 @@
+# PostgreSQL overlay. psycopg[binary] ships prebuilt wheels, so the
+# container needs no compiler and no libpq-dev/libpq5 system packages.
+-r base.in
+psycopg[binary]

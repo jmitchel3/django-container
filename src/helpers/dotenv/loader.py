@@ -1,31 +1,21 @@
-# using python-decouple to load environment variables
-import logging
-import pathlib
-from functools import lru_cache
+from pathlib import Path
 
 from decouple import Config, RepositoryEnv
 
-THIS_DIR = pathlib.Path(__file__).parent
-HELPERS_DIR = THIS_DIR.parent  # src/helpers/
-BASE_DIR = HELPERS_DIR.parent  # src/
-PROJECT_DIR = BASE_DIR.parent  # /
-
-logger = logging.getLogger(__name__)
+SOURCE_DIR = Path(__file__).resolve().parents[2]
+# The source checkout has src/manage.py; the container puts manage.py in /app.
+PROJECT_DIR = SOURCE_DIR.parent if SOURCE_DIR.name == "src" else SOURCE_DIR
 
 
-@lru_cache(maxsize=1)
-def get_config(allowed_envs: list[str] = [".env", ".env.local"]):
-    for env in allowed_envs:
-        path = PROJECT_DIR / env
-        if path.exists():
-            try:
-                logger.info(f"Loading {env}")
-                return Config(RepositoryEnv(path))
-            except FileNotFoundError:
-                continue
-    from decouple import config
-
-    return config
+def get_config(allowed_envs=(".env.local", ".env")):
+    """Use process variables first, followed by the listed files in order."""
+    values = {}
+    for name in reversed(allowed_envs):
+        try:
+            values.update(RepositoryEnv(PROJECT_DIR / name).data)
+        except FileNotFoundError:
+            continue
+    return Config(values)
 
 
 config = get_config()

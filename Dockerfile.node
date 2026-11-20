@@ -1,0 +1,103 @@
+# syntax=docker/dockerfile:1
+#
+# Variant: Django + PostgreSQL + a bundled JS frontend (Vite / React / CRA /
+# Next.js static export). The frontend is compiled in an isolated Node stage,
+# its build output is copied into Django's static dir, and WhiteNoise serves it
+# - one container, no separate Node server.
+#
+#   docker build -f Dockerfile.node -t django-app .
+#
+# Point it at your frontend with build args (defaults suit Vite):
+#   --build-arg FRONTEND_DIR=frontend
+#   --build-arg FRONTEND_BUILD_DIR=dist   # Vite=dist, CRA=build, Next export=out
+#
+ARG PYTHON_VERSION=3.13-slim-bookworm
+ARG NODE_VERSION=22-slim
+ARG UV_VERSION=0.9.18
+ARG DOPPLER_VERSION=3.77.1
+
+FROM dopplerhq/cli:${DOPPLER_VERSION} AS doppler-cli
+
+############################
+# Stage 1 - build frontend
+############################
+FROM node:${NODE_VERSION} AS frontend
+ARG FRONTEND_DIR=frontend
+WORKDIR /frontend
+
+# Install deps first (cached unless the lockfile changes), then build.
+COPY ${FRONTEND_DIR}/package*.json ./
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci
+COPY ${FRONTEND_DIR}/ ./
+RUN npm run build
+
+############################
+# Stage 2 - build the venv
+############################
+FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
+FROM python:${PYTHON_VERSION} AS builder
+
+COPY --from=uv /uv /uvx /bin/
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=0 \
+    VIRTUAL_ENV=/opt/venv \
+    PATH=/opt/venv/bin:$PATH
+
+RUN uv venv /opt/venv
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=requirements.txt,target=/tmp/requirements.txt \
+    uv pip install -r /tmp/requirements.txt
+
+############################
+# Stage 3 - runtime image
+############################
+FROM python:${PYTHON_VERSION} AS runtime
+
+ARG PROJ_NAME="cfehome"
+ARG FRONTEND_BUILD_DIR=dist
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH=/opt/venv/bin:$PATH \
+    HOME=/app \
+    PORT=8080 \
+    DJANGO_SETTINGS_MODULE=${PROJ_NAME}.settings \
+    DJANGO_WSGI_APP=${PROJ_NAME}.wsgi:application \
+    RUN_MIGRATIONS=1 \
+    RUN_COLLECTSTATIC=0 \
+    RUN_AUTO_ADMIN=0
+
+COPY --from=builder /opt/venv /opt/venv
+
+WORKDIR /app
+COPY ./src /app
+COPY gunicorn.conf.py /app/
+COPY scripts/ /app/scripts/
+
+# Drop the compiled frontend into a dir on STATICFILES_DIRS so collectstatic
+# picks it up and WhiteNoise serves it under /static/frontend/.
+COPY --from=frontend /frontend/${FRONTEND_BUILD_DIR}/ /app/staticfiles/frontend/
+
+# /app holds the default SQLite database and the generated static files.
+RUN groupadd -r app && useradd -r -g app -d /app app \
+    && chmod +x scripts/entrypoint.sh \
+    && chown app:app /app
+USER app
+
+# Only collectstatic sees this placeholder. Runtime settings come from deployment.
+RUN DJANGO_SECRET_KEY=collectstatic-build-only python manage.py collectstatic --no-input --clear
+
+EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD ["python", "/app/scripts/healthcheck.py"]
+
+ENTRYPOINT ["/app/scripts/entrypoint.sh"]
+
+# Opt in with docker build --target doppler. Supply credentials at runtime.
+FROM runtime AS doppler
+COPY --from=doppler-cli /bin/doppler /usr/local/bin/doppler
+ENV RUNTIME_ENV_PROVIDER=doppler
+
+FROM runtime AS final

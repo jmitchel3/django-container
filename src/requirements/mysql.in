@@ -1,0 +1,4 @@
+# MySQL / MariaDB overlay. mysqlclient is a C extension, so the builder
+# stage needs gcc + default-libmysqlclient-dev (see Dockerfile.mysql).
+-r base.in
+mysqlclient

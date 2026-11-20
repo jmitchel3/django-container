@@ -3,12 +3,15 @@
     "builder": "DOCKERFILE",
     "dockerfilePath": "./Dockerfile",
     "watchPatterns": [
-      "cfe.toml",
+      ".dockerignore",
+      "Dockerfile",
+      "Dockerfile.mysql",
+      "Dockerfile.node",
       "gunicorn.conf.py",
       "requirements.txt",
-      "src/**",
-      "railway.toml",
-      "Dockerfile"
+      "requirements.mysql.txt",
+      "scripts/**",
+      "src/**"
     ]
   },
   "deploy": {

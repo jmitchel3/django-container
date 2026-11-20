@@ -1,0 +1,9 @@
+# Database-agnostic core for ~85% of Django projects.
+# DB drivers live in the per-engine overlays (postgres.in / mysql.in)
+# so each container only ships the driver it actually needs.
+django>=6.0,<6.1
+django-cors-headers
+python-decouple
+dj-database-url
+whitenoise
+gunicorn

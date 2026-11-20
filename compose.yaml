@@ -1,14 +1,90 @@
+# Pick one profile: postgres and mysql start local databases with .env.dev.
+# doppler uses a service token to fetch the external database URL and app secrets.
 services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    profiles: ["postgres"]
+    env_file: .env.dev
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8001}:8080"
+    environment:
+      PORT: 8080
+      DATABASE_URL: postgres://postgres:postgres@db:5432/postgres
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web-mysql:
+    build:
+      context: .
+      dockerfile: Dockerfile.mysql
+    profiles: ["mysql"]
+    env_file: .env.dev
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8001}:8080"
+    environment:
+      PORT: 8080
+      DATABASE_URL: mysql://root:mysql@mysql:3306/app
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  web-doppler:
+    profiles: ["doppler"]
+    build:
+      context: .
+      target: doppler
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8001}:8080"
+    environment:
+      PORT: 8080
+      DOPPLER_TOKEN_FILE: /run/secrets/doppler_token
+    secrets:
+      - doppler_token
+
   db:
-    image: postgres:17  
+    image: postgres:17
+    profiles: ["postgres"]
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
     ports:
-      - "5432:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "postgres"]
+      start_period: 30s
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  mysql:
+    image: mysql:8.4
+    profiles: ["mysql"]
+    environment:
+      MYSQL_ROOT_PASSWORD: mysql
+      MYSQL_DATABASE: app
+    ports:
+      - "127.0.0.1:${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - MYSQL_PWD="$$MYSQL_ROOT_PASSWORD" mysql --protocol=TCP -h 127.0.0.1 -u root -D "$$MYSQL_DATABASE" -e 'SELECT 1'
+      start_period: 30s
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
 volumes:
   postgres_data:
+  mysql_data:
+
+secrets:
+  doppler_token:
+    environment: DOPPLER_TOKEN

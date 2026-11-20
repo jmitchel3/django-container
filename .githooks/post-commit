@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+
+branch=$(git symbolic-ref --quiet --short HEAD) || exit 0
+if ! git push origin "HEAD:refs/heads/$branch"; then
+    echo "Auto-push failed. The commit is saved locally. Check the Git error above and retry the push." >&2
+    exit 1
+fi

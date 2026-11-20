@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Run from the checkout. Compose mounts the live token only on the Doppler service.
+set +x
+set -eu
+
+usage() {
+    echo 'Usage: bin/check-doppler [--cli PROJECT CONFIG | --self-test]' >&2
+}
+
+if [[ $# -eq 1 && $1 == --self-test ]]; then
+    echo 'Testing the Doppler image against a local API fixture.'
+    image=$(docker build --quiet --target doppler .)
+    exec docker run --rm --network none --entrypoint python \
+        --mount "type=bind,src=$PWD/tests/integration/doppler_cli.py,dst=/tmp/check.py,readonly" \
+        "$image" /tmp/check.py
+fi
+
+if [[ $# -eq 3 && $1 == --cli && -n $2 && -n $3 ]]; then
+    # Build first so a slow image build cannot expire the one-off credential.
+    docker compose --profile doppler build web-doppler
+    echo "Requesting a five-minute read-only service token for $2 / $3." >&2
+    DOPPLER_TOKEN=$(doppler configs tokens create django-container-check \
+        --project "$2" --config "$3" --access read --max-age 5m --plain)
+    : "${DOPPLER_TOKEN:?Doppler returned an empty service token}"
+    export DOPPLER_TOKEN
+    exec docker compose --profile doppler run --rm web-doppler python manage.py check
+fi
+
+if [[ $# -ne 0 ]]; then
+    usage
+    exit 2
+fi
+
+if [[ -z ${DOPPLER_TOKEN:-} && -t 0 ]]; then
+    IFS= read -rs -p 'Paste the read-only Doppler service token (input hidden): ' DOPPLER_TOKEN || DOPPLER_TOKEN=''
+    printf '\n' >&2
+fi
+if [[ -z ${DOPPLER_TOKEN:-} ]]; then
+    echo 'A live check needs DOPPLER_TOKEN or an authenticated Doppler CLI. With a CLI login, use --cli PROJECT CONFIG. Use --self-test for a local check without credentials.' >&2
+    exit 1
+fi
+
+export DOPPLER_TOKEN
+exec docker compose --profile doppler run --build --rm web-doppler python manage.py check

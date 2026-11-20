@@ -1,27 +1,41 @@
 scripts:
+  # --- Docker image builds (one per unavoidable variant) ---
   build:
     - docker build -t django-container .
+  "build:mysql":
+    - docker build -f Dockerfile.mysql -t django-container:mysql .
+  "build:node":
+    - docker build -f Dockerfile.node -t django-container:node .
   shell:
     - docker run -it django-container bash
   run:
     - docker stop django-container || true
-    - docker run --rm -p 8001:8001 -e PORT=8001 --env-file .env.dev --name django-container django-container
+    - docker run --rm -p 8001:8080 -e PORT=8080 --env-file .env.dev --name django-container django-container
   stop:
     - docker stop django-container
   remove:
     - docker rm django-container
+
+  # --- Local dev stack (compose profiles) ---
   db_up:
-    - docker compose up -d db
+    - docker compose --profile postgres up -d db
   db_down:
-    - docker compose down db
+    - docker compose --profile postgres down
+  up:
+    - docker compose --profile postgres up --build
+  up_mysql:
+    - docker compose --profile mysql up --build
+
+  # --- Native dev ---
   dev:
-    - cd src
-    - ../venv/bin/python manage.py runserver
+    - .venv/bin/python src/manage.py runserver
   migrate:
-    - cd src
-    - ../venv/bin/python manage.py migrate
+    - .venv/bin/python src/manage.py migrate
+
+  # --- Dependency locks (uv: fast, deterministic) ---
+  lock:
+    - uv pip compile src/requirements/postgres.in --python-version 3.13 --output-file requirements.txt
+    - uv pip compile src/requirements/mysql.in --python-version 3.13 --output-file requirements.mysql.txt
+    - uv pip compile src/requirements/dev.in -c requirements.txt --python-version 3.13 --output-file requirements.dev.txt
   install:
-    - venv/bin/pip-compile src/requirements/dev.in --output-file requirements.dev.txt
-    - venv/bin/pip-compile src/requirements/prod.in --output-file requirements.txt
-    - venv/bin/pip install -r requirements.dev.txt
-    - venv/bin/pip install -r requirements.txt
+    - uv pip sync requirements.txt requirements.dev.txt

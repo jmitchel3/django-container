@@ -1,68 +1,80 @@
-# Build stage
-ARG PYTHON_VERSION=3.12-slim-bullseye
+# syntax=docker/dockerfile:1
+#
+# Default variant: Django + PostgreSQL (covers the large majority of projects).
+# psycopg[binary] ships prebuilt wheels, so this image needs NO compiler and
+# NO libpq system packages - keeping it small and fast to build.
+#
+#   docker build -t django-app .
+#
+ARG PYTHON_VERSION=3.13-slim-bookworm
+ARG UV_VERSION=0.9.18
+ARG DOPPLER_VERSION=3.77.1
+
+FROM dopplerhq/cli:${DOPPLER_VERSION} AS doppler-cli
+
+############################
+# Stage 1 - build the venv
+############################
+FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
 FROM python:${PYTHON_VERSION} AS builder
 
-# Combine venv creation and build dependencies
-RUN python -m venv /opt/venv && \
-    apt-get update && apt-get install -y \
-    libpq-dev \
-    zlib1g-dev \
-    libjpeg-dev \
-    libfreetype6-dev \
-    python3-dev \
-    gcc \
-    g++ \
-    && rm -rf /var/lib/apt/lists/*
+COPY --from=uv /uv /uvx /bin/
 
-ENV PATH=/opt/venv/bin:$PATH
+# Bytecode-compile on install, copy (not hardlink) across the cache mount,
+# and never let uv reach out to download a Python - we already have one.
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=0 \
+    VIRTUAL_ENV=/opt/venv \
+    PATH=/opt/venv/bin:$PATH
 
-# Install packages and cleanup in same layer
-COPY requirements.txt /tmp/
-RUN pip install --upgrade pip && \
-    pip install -r /tmp/requirements.txt gunicorn && \
-    rm -rf /root/.cache/pip/* /tmp/requirements.txt
+RUN uv venv /opt/venv
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=requirements.txt,target=/tmp/requirements.txt \
+    uv pip install -r /tmp/requirements.txt
 
-# Final stage
-FROM python:${PYTHON_VERSION}
+############################
+# Stage 2 - runtime image
+############################
+FROM python:${PYTHON_VERSION} AS runtime
 
-# Copy virtual env from builder
-COPY --from=builder /opt/venv /opt/venv
-ENV PATH=/opt/venv/bin:$PATH
-
-# Install only runtime dependencies
-RUN apt-get update && apt-get install -y \
-    libpq5 \
-    curl \
-    libcairo2 \
-    && rm -rf /var/lib/apt/lists/*
-
-    # Create runtime script
 ARG PROJ_NAME="cfehome"
-# Set Python environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    DJANGO_SETTINGS_MODULE=${PROJ_NAME}.settings
+    PATH=/opt/venv/bin:$PATH \
+    HOME=/app \
+    PORT=8080 \
+    DJANGO_SETTINGS_MODULE=${PROJ_NAME}.settings \
+    DJANGO_WSGI_APP=${PROJ_NAME}.wsgi:application \
+    RUN_MIGRATIONS=1 \
+    RUN_COLLECTSTATIC=0 \
+    RUN_AUTO_ADMIN=0
+
+COPY --from=builder /opt/venv /opt/venv
 
 WORKDIR /app
 COPY ./src /app
-
-# Add this line to copy gunicorn config
 COPY gunicorn.conf.py /app/
+COPY scripts/ /app/scripts/
 
-RUN printf "#!/bin/bash\n" > ./paracord_runner.sh && \
-    printf "RUN_PORT=\"\${PORT:-8080}\"\n\n" >> ./paracord_runner.sh && \
-    printf "python manage.py migrate --no-input\n" >> ./paracord_runner.sh && \
-    printf "python manage.py collectstatic --no-input\n" >> ./paracord_runner.sh && \
-    printf "python manage.py auto_admin\n" >> ./paracord_runner.sh && \
-    printf "gunicorn ${PROJ_NAME}.wsgi:application -c gunicorn.conf.py --bind \"[::]:\$RUN_PORT\"\n" >> ./paracord_runner.sh
+# /app holds the default SQLite database and the generated static files.
+RUN groupadd -r app && useradd -r -g app -d /app app \
+    && chmod +x scripts/entrypoint.sh \
+    && chown app:app /app
+USER app
 
-# Setup non-root user
-RUN groupadd -r paracord && useradd -r -g paracord paracord && \
-    chown -R paracord:paracord /app && \
-    chown -R paracord:paracord /opt/venv && \
-    chmod +x paracord_runner.sh && \
-    chown paracord:paracord paracord_runner.sh
+# Only collectstatic sees this placeholder. Runtime settings come from deployment.
+RUN DJANGO_SECRET_KEY=collectstatic-build-only python manage.py collectstatic --no-input --clear
 
-USER paracord
+EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD ["python", "/app/scripts/healthcheck.py"]
 
-CMD ./paracord_runner.sh
+ENTRYPOINT ["/app/scripts/entrypoint.sh"]
+
+# Opt in with docker build --target doppler. Supply credentials at runtime.
+FROM runtime AS doppler
+COPY --from=doppler-cli /bin/doppler /usr/local/bin/doppler
+ENV RUNTIME_ENV_PROVIDER=doppler
+
+FROM runtime AS final

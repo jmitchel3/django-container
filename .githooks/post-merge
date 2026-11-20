@@ -1,0 +1,4 @@
+#!/bin/sh
+# A squash merge stages changes for a later commit.
+[ "$1" = 0 ] || exit 0
+exec "$(dirname "$0")/post-commit"

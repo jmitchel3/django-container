@@ -1,9 +1,4 @@
-import multiprocessing
-
-# Recommended: 2-4 workers per CPU core for Django
-cpu_count = multiprocessing.cpu_count()
-max_workers = 10
-workers = min(cpu_count * 2 + 1, max_workers)
+# Gunicorn reads WEB_CONCURRENCY and defaults to one worker.
 
 # Prevent stuck workers
 timeout = 60
@@ -19,9 +14,9 @@ loglevel = "info"  # debug in prod is too verbose
 errorlog = "-"
 accesslog = "-"
 
-# Custom access log format that includes host header
+# Log the request path without query strings or referrers, which can carry tokens.
 access_log_format = (
-    '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s" host="%({Host}i)s"'
+    '%(h)s %(l)s %(u)s %(t)s "%(m)s %(U)s %(H)s" %(s)s %(b)s "%(a)s" host="%({host}i)s"'
 )
 
 # Performance

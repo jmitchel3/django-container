@@ -1,0 +1,50 @@
+# Keep the build context tiny, fast, and free of secrets.
+
+# Secrets & local env — never ship these into an image layer
+**/.env
+**/.env.*
+**/.doppler/
+**/secrets/
+
+# Python virtualenvs / caches
+venv/
+.venv/
+env/
+ENV/
+__pycache__/
+*.py[cod]
+*.so
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Collected/generated static — regenerated at build time
+src/static_root/
+src/staticfiles/CACHE/
+
+# Local databases
+*.sqlite3
+*.sqlite3-journal
+db.sqlite3
+
+# Node / frontend build artifacts (rebuilt in the frontend stage)
+node_modules/
+frontend/node_modules/
+frontend/.next/
+frontend/dist/
+frontend/build/
+frontend/out/
+
+# VCS & tooling metadata
+.git/
+.gitignore
+.github/
+.vscode/
+.idea/
+.DS_Store
+
+# Docs & CI — not needed at runtime
+README.md
+*.md
+compose.yaml
+rav.yaml

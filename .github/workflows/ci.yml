@@ -1,0 +1,103 @@
+name: Container checks
+
+on:
+  push:
+    branches-ignore: [releases]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Test runtime secret injection
+        run: python3 -m unittest discover -s tests -v
+
+      - name: Build the default image
+        run: docker build -t django-ci:default .
+
+      - name: Test Django with SQLite
+        run: |
+          docker run --rm --network none \
+            -e DJANGO_SECRET_KEY=ci-only -e DATABASE_URL=sqlite://:memory: \
+            django-ci:default python manage.py test cfehome commando
+
+      - name: Start the web server with a mounted signing key
+        run: |
+          printf '%s\n' ci-only > "$RUNNER_TEMP/signing-key"
+          chmod 0444 "$RUNNER_TEMP/signing-key"
+          docker run -d --name django-web -p 127.0.0.1:18080:8080 \
+            --mount "type=bind,source=$RUNNER_TEMP/signing-key,target=/run/secrets/signing-key,readonly" \
+            -e DJANGO_SECRET_KEY_FILE=/run/secrets/signing-key django-ci:default
+          curl --fail --retry 15 --retry-delay 1 --retry-all-errors \
+            --max-time 4 http://127.0.0.1:18080/api/healthz/ || { docker logs django-web; exit 1; }
+
+      - name: Build the Doppler target and check credential handling
+        run: |
+          docker build --target doppler -t django-ci:doppler .
+          docker run --rm --network none --entrypoint python \
+            --mount "type=bind,src=$PWD/tests/integration/doppler_cli.py,dst=/tmp/check.py,readonly" \
+            django-ci:doppler /tmp/check.py
+          if docker run --rm --network none django-ci:doppler true > "$RUNNER_TEMP/doppler.log" 2>&1; then
+            echo 'The Doppler target started without a service token.'
+            exit 1
+          fi
+          grep -F 'provide a token' "$RUNNER_TEMP/doppler.log"
+
+  databases:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        include:
+          - profile: postgres
+            web: web
+          - profile: mysql
+            web: web-mysql
+    env:
+      COMPOSE_PROFILES: ${{ matrix.profile }}
+      WEB_SERVICE: ${{ matrix.web }}
+      WEB_PORT: "0"
+      POSTGRES_PORT: "0"
+      MYSQL_PORT: "0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Migrate and start with a fresh database
+        run: docker compose up --build --wait --wait-timeout 150
+      - name: Run the Django tests against the database
+        run: docker compose exec -T "$WEB_SERVICE" python manage.py test cfehome commando
+      - name: Show startup logs on failure
+        if: failure()
+        run: docker compose logs --tail 100
+
+  release:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: [test, databases]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    concurrency:
+      group: publish-main
+      queue: max
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Tag the source and publish the changelog
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          python3 .github/release.py
